@@ -1,14 +1,35 @@
 # WinIO: a file handle passed to a child process crashes the parent
 
-Under the native Windows I/O manager (`--io-manager=native`), a Haskell program that passes a
-file opened with `openFile`/`openTempFile` to a child process (`std_out = UseHandle h`) crashes
-as soon as the child does overlapped I/O on that handle:
+This ordinary code crashes the parent under the native Windows I/O manager
+(`--io-manager=native`):
+
+```haskell
+import System.IO
+import System.Process
+
+main :: IO ()
+main = do
+  (_, h) <- openTempFile "." "out.log"
+  (_, _, _, ph) <- createProcess (proc "wsl.exe" ["echo", "hello"]) { std_out = UseHandle h }
+  _ <- waitForProcess ph
+  putStrLn "parent: still alive"
+```
 
 ```
-Access violation in generated code when writing 0x500000000020
+> ghc -threaded "-with-rtsopts=--io-manager=native" Main.hs
+> .\Main.exe
+Access violation in generated code when writing 0x2e7cbff810
 ```
+
+It crashed in 5 out of 5 runs, at a different address each time.
+
+The parent doesn't do anything unusual: it opens a file and hands it to a child as stdout.
+It's enough for the child to do overlapped I/O on its stdout, as `wsl.exe` does when it
+relays a Linux process's output.
 
 Reproduced with stock GHC 9.12.4 (ghcup) on Windows 11, `process` as shipped with GHC.
+`Main.hs` is the same parent code, with a small child that does a single overlapped
+`WriteFile` so the crash doesn't depend on WSL being installed.
 
 ## Run it
 
